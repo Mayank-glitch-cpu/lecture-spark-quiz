@@ -4,6 +4,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
 import { useToast } from '@/components/ui/use-toast';
+import { PostgrestError } from '@supabase/supabase-js';
+
+// Define a type for profile data from Supabase
+type Profile = {
+  id: string;
+  display_name?: string;
+  avatar_url?: string;
+  role: Role;
+  created_at?: string;
+  updated_at?: string;
+};
 
 type AppContextType = {
   user: User | null;
@@ -63,13 +74,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         });
 
         // Get user profile to determine role
-        const { data: profile } = await supabase
+        const { data: profile, error } = await supabase
           .from('profiles')
-          .select('role')
+          .select('*')
           .eq('id', currentSession.user.id)
           .single();
 
-        if (profile) {
+        if (profile && !error) {
           setRole(profile.role as Role);
         }
       }
@@ -87,13 +98,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             });
 
             // Get user profile to determine role
-            const { data: profile } = await supabase
+            const { data: profile, error } = await supabase
               .from('profiles')
-              .select('role')
+              .select('*')
               .eq('id', authSession.user.id)
               .single();
 
-            if (profile) {
+            if (profile && !error) {
               setRole(profile.role as Role);
             }
             
