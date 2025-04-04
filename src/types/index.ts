@@ -1,6 +1,12 @@
 
 export type Role = "student" | "professor";
 
+export interface User {
+  id: string;
+  email: string | null;
+  name: string | null;
+}
+
 export interface QuizQuestion {
   id: string;
   question: string;
