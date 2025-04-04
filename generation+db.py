@@ -4,12 +4,9 @@ import google.generativeai as genai
 import json
 import re
 import sqlite3
-from supabase import create_client  # requires supabase-py package
+from supabase import create_client
 
-# Load environment variables from .env file
 load_dotenv()
-
-# Configure Gemini API with the correct environment variable name
 api_key = os.getenv("GEMINI-API-KEY")
 if not api_key:
     raise ValueError("GEMINI-API-KEY not found in environment variables")
@@ -37,11 +34,9 @@ supabase_url = os.environ.get("SUPABASE_URL", "https://avlxadmsemdtiygbotas.supa
 supabase_key = os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2bHhhZG1zZW1kdGl5Z2JvdGFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM3OTcxNzQsImV4cCI6MjA1OTM3MzE3NH0.Uy397lqE2j6yU9dtNvkM5hNR28al_lBYv8gZQKhGRks")
 supabase = create_client(supabase_url, supabase_key)
 
-# Add this debug code temporarily at the start of your script
 print(f"Supabase URL: {supabase_url}")
 print(f"Supabase key length: {len(supabase_key) if supabase_key else 'No key found'}")
 
-# Replace the existing table check code with this:
 def create_supabase_table():
     create_table_sql = """
     create table if not exists public.mcqs (
@@ -58,15 +53,13 @@ def create_supabase_table():
     try:
         # Using REST API to create table
         response = supabase.rpc('exec_sql', {'query': create_table_sql}).execute()
-        print("✅ MCQs table created or already exists in Supabase")
+        print("MCQs table created or already exists in Supabase")
         return True
     except Exception as e:
-        print(f"❌ Error creating table: {str(e)}")
+        print(f"Error creating table")
         return False
 
-# Replace the existing try-except block with this:
 try:
-    # Test if table exists by attempting to select from it
     response = supabase.table("mcqs").select("id").limit(1).execute()
     print("✅ MCQs table exists in Supabase")
 except Exception as e:
@@ -76,7 +69,6 @@ except Exception as e:
     else:
         print("❌ Failed to create table")
 
-# Add this test code temporarily
 try:
     response = supabase.table("mcqs").select("*").execute()
     print("Connection test successful:", response)
@@ -98,35 +90,30 @@ def summarize_text(text, temperature=0.2, max_tokens=500, top_p=0.9, top_k=40):
 
 def generate_mcq_json(summary_text):
     prompt = f"""
-From the following text, generate a multiple-choice question with 4 options (A, B, C, D) in **valid JSON format**. The JSON should include:
-- "question": the question string
-- "options": a dictionary with keys A, B, C, and D and their corresponding answers
-- "answer": the correct option letter (A/B/C/D)
-Only return valid JSON. No explanation.
+    From the following text, generate a multiple-choice question with 4 options (A, B, C, D) in **valid JSON format**. The JSON should include:
+    - "question": the question string
+    - "options": a dictionary with keys A, B, C, and D and their corresponding answers
+    - "answer": the correct option letter (A/B/C/D)
+    Only return valid JSON. No explanation.
 
-Text: \"\"\"{summary_text}\"\"\" 
-"""
+    Text: \"\"\"{summary_text}\"\"\" 
+    """
     response = model.generate_content(prompt)
     return extract_json_from_response(response.text)
 
 def extract_json_from_response(raw_text):
-    """
-    Extract JSON block from Gemini response text.
-    Strips backticks and handles common issues.
-    """
     clean_text = re.sub(r"```json|```", "", raw_text.strip())
     clean_text = clean_text.replace("“", "\"").replace("”", "\"").replace("‘", "'").replace("’", "'")
 
     try:
         return json.loads(clean_text)
     except json.JSONDecodeError as e:
-        print("⚠️ JSON Decode Error:", e)
+        print("JSON Decode Error:", e)
         print("Cleaned text:\n", clean_text)
         return None
 
 def insert_mcq(mcq):
     try:
-        # Insert into SQLite database
         cursor.execute('''
             INSERT INTO mcqs (question, option_a, option_b, option_c, option_d, answer)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -139,9 +126,7 @@ def insert_mcq(mcq):
             mcq["answer"]
         ))
         conn.commit()
-        print("✅ MCQ inserted into SQLite database.")
-    
-        # Insert into Supabase database
+        print(" MCQ inserted into SQLite database.")
         data = {
             "question": mcq["question"],
             "option_a": mcq["options"]["A"],
@@ -153,13 +138,12 @@ def insert_mcq(mcq):
         
         response = supabase.table("mcqs").insert(data).execute()
         if hasattr(response, 'data') and response.data:
-            print("✅ MCQ inserted into Supabase database.")
+            print("MCQ inserted into Supabase database.")
             print(f"Inserted data: {response.data}")
         else:
-            print("❌ No data returned from Supabase insertion")
+            print("No data returned from Supabase insertion")
             
     except Exception as e:
-        print(f"❌ Error during insertion: {str(e)}")
         print(f"Error type: {type(e)}")
         if hasattr(e, 'response'):
             print(f"Response status: {e.response.status_code}")
@@ -175,4 +159,4 @@ if __name__ == "__main__":
         print("\nGenerated MCQ JSON:\n", json.dumps(mcq, indent=2))
         insert_mcq(mcq)
     else:
-        print("❌ Could not generate a valid MCQ.")
+        print("not valid MCQ.")
