@@ -4,16 +4,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
 import { useToast } from '@/components/ui/use-toast';
-import { PostgrestError } from '@supabase/supabase-js';
+import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
 
 // Define a type for profile data from Supabase
 type Profile = {
   id: string;
-  display_name?: string;
-  avatar_url?: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
   role: Role;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type AppContextType = {
@@ -64,7 +64,40 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const setupAuth = async () => {
       setLoading(true);
       
-      // Get initial session
+      // Set up auth state listener FIRST
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (event, authSession) => {
+          if (event === 'SIGNED_IN' && authSession?.user) {
+            setUser({
+              id: authSession.user.id,
+              email: authSession.user.email,
+              name: authSession.user.user_metadata.display_name || authSession.user.email,
+            });
+            
+            // Fetch profile after state update with setTimeout to avoid authentication deadlock
+            setTimeout(async () => {
+              const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', authSession.user.id)
+                .single();
+
+              if (profile && !error) {
+                setRole(profile.role as Role);
+              }
+              
+              toast({
+                title: "Welcome back!",
+                description: "You are now signed in.",
+              });
+            }, 0);
+          } else if (event === 'SIGNED_OUT') {
+            setUser(null);
+          }
+        }
+      );
+      
+      // THEN check for existing session
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (currentSession?.user) {
         setUser({
@@ -86,37 +119,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
       
       setLoading(false);
-      
-      // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, authSession) => {
-          if (event === 'SIGNED_IN' && authSession?.user) {
-            setUser({
-              id: authSession.user.id,
-              email: authSession.user.email,
-              name: authSession.user.user_metadata.display_name || authSession.user.email,
-            });
-
-            // Get user profile to determine role
-            const { data: profile, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', authSession.user.id)
-              .single();
-
-            if (profile && !error) {
-              setRole(profile.role as Role);
-            }
-            
-            toast({
-              title: "Welcome back!",
-              description: "You are now signed in.",
-            });
-          } else if (event === 'SIGNED_OUT') {
-            setUser(null);
-          }
-        }
-      );
       
       // Cleanup
       return () => {
