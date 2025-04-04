@@ -129,6 +129,61 @@ export interface Database {
           created_at?: string | null
         }
       }
+      engagement: {
+        Row: {
+          id: string
+          session_id: string
+          student_id: string
+          attention_score: number
+          timestamp: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          student_id: string
+          attention_score: number
+          timestamp?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          student_id?: string
+          attention_score?: number
+          timestamp?: string
+          created_at?: string
+        }
+      }
+      session_students: {
+        Row: {
+          session_id: string
+          student_id: string
+          joined_at: string
+        }
+        Insert: {
+          session_id: string
+          student_id: string
+          joined_at?: string
+        }
+        Update: {
+          session_id?: string
+          student_id?: string
+          joined_at?: string
+        }
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }
