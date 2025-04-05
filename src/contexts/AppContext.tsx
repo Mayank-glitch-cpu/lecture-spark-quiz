@@ -1,23 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { supabase } from "@/integrations/supabase/client";
 import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
-import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
+import { Dashboard, QuizQuestion, QuizResponse, Role, Session } from '../types';
 import { useToast } from '@/components/ui/use-toast';
-import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
 import { fetchLatestMCQ, mapMCQToQuizQuestion } from '@/services/mcqService';
 
-// Define a type for profile data from Supabase
-type Profile = {
-  id: string;
-  display_name?: string | null;
-  avatar_url?: string | null;
-  role: Role;
-  created_at?: string | null;
-  updated_at?: string | null;
-};
-
 type AppContextType = {
-  user: User | null;
   session: Session | null;
   dashboard: Dashboard | null;
   activeQuestion: QuizQuestion | null;
@@ -32,7 +19,13 @@ type AppContextType = {
   role: Role;
   setRole: (role: Role) => void;
   loading: boolean;
-  signOut: () => Promise<void>;
+  // Auto quiz settings
+  autoQuizEnabled: boolean;
+  setAutoQuizEnabled: (enabled: boolean) => void;
+  quizIntervalMinutes: number;
+  setQuizIntervalMinutes: (minutes: number) => Promise<void>;
+  timeUntilNextQuiz: number | null;
+  generateQuizFromTranscript: () => Promise<void>;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -46,7 +39,6 @@ export const useApp = () => {
 };
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<Role>("student");
   const [session, setSession] = useState<Session | null>(mockSession);
   const [dashboard, setDashboard] = useState<Dashboard | null>(mockDashboard);
@@ -57,94 +49,36 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [nextQuestionTime, setNextQuestionTime] = useState<number | null>(
     mockSession ? Date.now() + mockSession.quizFrequencyMinutes * 60 * 1000 : null
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   
-  // Authentication effect
-  useEffect(() => {
-    const setupAuth = async () => {
-      setLoading(true);
-      
-      // Set up auth state listener FIRST
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        (event, authSession) => {
-          if (event === 'SIGNED_IN' && authSession?.user) {
-            setUser({
-              id: authSession.user.id,
-              email: authSession.user.email,
-              name: authSession.user.user_metadata.display_name || authSession.user.email,
-            });
-            
-            // Fetch profile after state update with setTimeout to avoid authentication deadlock
-            setTimeout(async () => {
-              const { data: profile, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', authSession.user.id)
-                .single();
-
-              if (profile && !error) {
-                setRole(profile.role as Role);
-              }
-              
-              toast({
-                title: "Welcome back!",
-                description: "You are now signed in.",
-              });
-            }, 0);
-          } else if (event === 'SIGNED_OUT') {
-            setUser(null);
-          }
-        }
-      );
-      
-      // THEN check for existing session
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      if (currentSession?.user) {
-        setUser({
-          id: currentSession.user.id,
-          email: currentSession.user.email,
-          name: currentSession.user.user_metadata.display_name || currentSession.user.email,
-        });
-
-        // Get user profile to determine role
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', currentSession.user.id)
-          .single();
-
-        if (profile && !error) {
-          setRole(profile.role as Role);
-        }
-      }
-      
-      setLoading(false);
-      
-      // Cleanup
-      return () => {
-        subscription.unsubscribe();
-      };
-    };
+  // Auto quiz settings
+  const [autoQuizEnabled, setAutoQuizEnabled] = useState(false);
+  const [quizIntervalMinutes, setQuizIntervalMinutesState] = useState(10);
+  const [timeUntilNextQuiz, setTimeUntilNextQuiz] = useState<number | null>(
+    mockSession ? Date.now() + mockSession.quizFrequencyMinutes * 60 * 1000 : null
+  );
+  
+  // Update quiz interval
+  const setQuizIntervalMinutes = async (minutes: number) => {
+    setQuizIntervalMinutesState(minutes);
+    // Recalculate next question time
+    setTimeUntilNextQuiz(Date.now() + minutes * 60 * 1000);
     
-    setupAuth();
-  }, []);
-
-  const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-      setUser(null);
-      toast({
-        title: "Signed out",
-        description: "You have been signed out successfully.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error signing out",
-        description: error.message,
-        variant: "destructive",
+    // In a full implementation, this would update the session in the database
+    if (session) {
+      setSession({
+        ...session,
+        quizFrequencyMinutes: minutes
       });
     }
+    
+    toast({
+      title: "Quiz interval updated",
+      description: `Questions will now be generated every ${minutes} minutes`,
+    });
+    
+    return Promise.resolve();
   };
   
   // Submit quiz response function
@@ -249,9 +183,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Generate quiz from transcript (alias for fetchGeminiQuestion)
+  const generateQuizFromTranscript = fetchGeminiQuestion;
+
   return (
     <AppContext.Provider value={{
-      user,
       role,
       setRole,
       session,
@@ -266,7 +202,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       fetchGeminiQuestion,
       nextQuestionTime,
       loading,
-      signOut
+      // Auto quiz settings
+      autoQuizEnabled,
+      setAutoQuizEnabled,
+      quizIntervalMinutes,
+      setQuizIntervalMinutes,
+      timeUntilNextQuiz,
+      generateQuizFromTranscript
     }}>
       {children}
     </AppContext.Provider>

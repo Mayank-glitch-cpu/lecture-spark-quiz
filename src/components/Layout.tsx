@@ -1,13 +1,11 @@
-
 import Header from "./Header";
 import { useApp } from "../contexts/AppContext";
 import ProfessorView from "./professor/ProfessorView";
 import StudentView from "./student/StudentView";
-import { Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
 const Layout = () => {
-  const { role, user, loading } = useApp();
+  const { role, loading } = useApp();
   
   if (loading) {
     return (
@@ -15,10 +13,6 @@ const Layout = () => {
         <Loader2 className="h-8 w-8 animate-spin text-quiz-purple" />
       </div>
     );
-  }
-  
-  if (!user) {
-    return <Navigate to="/auth" replace />;
   }
   
   return (

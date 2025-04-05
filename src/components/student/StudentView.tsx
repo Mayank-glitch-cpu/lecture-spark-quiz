@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { useApp } from "../../contexts/AppContext";
 import ZoomIntegration from "../ZoomIntegration";
@@ -11,10 +10,37 @@ const StudentView = () => {
     setIsQuizActive, 
     activeQuestion, 
     responseSubmitted, 
-    nextQuestionTime 
+    nextQuestionTime,
+    generateNewQuestion 
   } = useApp();
   
   const [timeToNext, setTimeToNext] = useState<number | null>(null);
+  const [initialQuizShown, setInitialQuizShown] = useState<boolean>(false);
+  
+  // Initial quiz popup after 10 seconds
+  useEffect(() => {
+    if (!initialQuizShown && activeQuestion) {
+      const timer = setTimeout(() => {
+        setIsQuizActive(true);
+        setInitialQuizShown(true);
+      }, 10000); // 10 seconds
+      
+      return () => clearTimeout(timer);
+    }
+  }, [initialQuizShown, activeQuestion, setIsQuizActive]);
+  
+  // Display a countdown for the initial quiz
+  const [initialCountdown, setInitialCountdown] = useState<number>(10);
+  
+  useEffect(() => {
+    if (!initialQuizShown && activeQuestion && initialCountdown > 0) {
+      const countdownInterval = setInterval(() => {
+        setInitialCountdown(prev => prev - 1);
+      }, 1000);
+      
+      return () => clearInterval(countdownInterval);
+    }
+  }, [initialQuizShown, activeQuestion, initialCountdown]);
   
   useEffect(() => {
     if (!nextQuestionTime) return;
@@ -47,7 +73,13 @@ const StudentView = () => {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Current Lecture</h2>
-          {timeToNext && timeToNext > 0 && !isQuizActive && (
+          {!initialQuizShown && !isQuizActive && activeQuestion && (
+            <div className="flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-amber-100 text-amber-800">
+              <Bell className="h-3 w-3 mr-1 animate-pulse" />
+              Quiz starting in {initialCountdown} seconds
+            </div>
+          )}
+          {timeToNext && timeToNext > 0 && !isQuizActive && initialQuizShown && (
             <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
               timeToNext < 60 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
             }`}>
