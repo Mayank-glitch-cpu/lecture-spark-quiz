@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from "@/integrations/supabase/client";
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
@@ -6,7 +5,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
 import { fetchLatestMCQ, mapMCQToQuizQuestion } from '@/services/mcqService';
 
-// Define a type for profile data from Supabase
 type Profile = {
   id: string;
   display_name?: string | null;
@@ -27,7 +25,7 @@ type AppContextType = {
   submitQuizResponse: (response: Omit<QuizResponse, 'id' | 'timestamp'>) => void;
   responseSubmitted: boolean;
   generateNewQuestion: () => void;
-  fetchGeminiQuestion: () => Promise<void>;
+  fetchGeminiQuestion: () => Promise<QuizQuestion | void>;
   nextQuestionTime: number | null;
   role: Role;
   setRole: (role: Role) => void;
@@ -58,12 +56,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   
-  // Authentication effect
   useEffect(() => {
     const setupAuth = async () => {
       setLoading(true);
       
-      // Set up auth state listener FIRST
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         (event, authSession) => {
           if (event === 'SIGNED_IN' && authSession?.user) {
@@ -73,7 +69,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
               name: authSession.user.user_metadata.display_name || authSession.user.email,
             });
             
-            // Fetch profile after state update with setTimeout to avoid authentication deadlock
             setTimeout(async () => {
               const { data: profile, error } = await supabase
                 .from('profiles')
@@ -96,7 +91,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
       );
       
-      // THEN check for existing session
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (currentSession?.user) {
         setUser({
@@ -105,7 +99,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           name: currentSession.user.user_metadata.display_name || currentSession.user.email,
         });
 
-        // Get user profile to determine role
         const { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
@@ -119,7 +112,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       
       setLoading(false);
       
-      // Cleanup
       return () => {
         subscription.unsubscribe();
       };
@@ -128,7 +120,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setupAuth();
   }, []);
 
-  // Fetch session data from Supabase
   useEffect(() => {
     const fetchSessionData = async () => {
       if (!user) return;
@@ -136,7 +127,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       try {
         setLoading(true);
         
-        // Fetch latest active session
         const { data: sessionData, error: sessionError } = await supabase
           .from('sessions')
           .select('*')
@@ -150,7 +140,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         
         if (sessionData) {
-          // Transform the Supabase session format to our application format
           const currentSession: Session = {
             id: sessionData.id,
             title: sessionData.title,
@@ -160,10 +149,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             quizFrequencyMinutes: sessionData.quiz_frequency_minutes,
             topicTags: sessionData.topic_tags || [],
             questions: [],
-            activeStudents: 0 // Will be updated below
+            activeStudents: 0
           };
           
-          // Count active students
           const { count, error: countError } = await supabase
             .from('session_students')
             .select('*', { count: 'exact', head: true })
@@ -173,7 +161,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             currentSession.activeStudents = count;
           }
           
-          // Fetch questions for this session
           const { data: questions, error: questionsError } = await supabase
             .from('questions')
             .select('*')
@@ -181,7 +168,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             .order('created_at', { ascending: false });
             
           if (!questionsError && questions) {
-            // Transform questions to our format
             currentSession.questions = questions.map(q => ({
               id: q.id,
               question: q.question,
@@ -192,12 +178,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
               transcriptSegment: q.transcript_segment || undefined
             }));
             
-            // Set active question if there's at least one
             if (currentSession.questions.length > 0) {
               setActiveQuestion(currentSession.questions[0]);
             }
             
-            // Set upcoming questions (all except the first one)
             if (currentSession.questions.length > 1) {
               setUpcomingQuestions(currentSession.questions.slice(1));
             }
@@ -205,12 +189,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           
           setSession(currentSession);
           
-          // Set next quiz time based on frequency
           if (currentSession.quizFrequencyMinutes > 0) {
             setNextQuestionTime(Date.now() + currentSession.quizFrequencyMinutes * 60 * 1000);
           }
           
-          // Fetch responses for the active question
           if (currentSession.questions.length > 0) {
             const activeQuestionId = currentSession.questions[0].id;
             const { data: responses, error: responsesError } = await supabase
@@ -219,7 +201,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
               .eq('question_id', activeQuestionId);
               
             if (!responsesError && responses) {
-              // Transform responses to our format
               const formattedResponses: QuizResponse[] = responses.map(r => ({
                 id: r.id,
                 questionId: r.question_id,
@@ -230,14 +211,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 timestamp: r.created_at
               }));
               
-              // Fetch student data
               const { data: studentProfiles, error: studentsError } = await supabase
                 .from('profiles')
                 .select('*')
                 .in('id', responses.map(r => r.student_id));
                 
               if (!studentsError && studentProfiles) {
-                // Build dashboard data
                 const dashboardData: Dashboard = {
                   session: currentSession,
                   activeQuestion: currentSession.questions[0],
@@ -248,15 +227,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                       id: s.id,
                       name: s.display_name || 'Anonymous',
                       responses: studentResponses,
-                      attentionScore: 85 // Default value, would be calculated from engagement data
+                      attentionScore: 85
                     };
                   }),
                   participationRate: Math.round((formattedResponses.length / currentSession.activeStudents) * 100) || 0,
                   correctAnswerRate: Math.round((formattedResponses.filter(r => r.isCorrect).length / formattedResponses.length) * 100) || 0,
-                  attentionOverTime: [] // Would be populated from engagement data
+                  attentionOverTime: []
                 };
                 
-                // Fetch attention data points
                 const { data: engagementData, error: engagementError } = await supabase
                   .from('engagement')
                   .select('*')
@@ -264,7 +242,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                   .order('timestamp', { ascending: true });
                   
                 if (!engagementError && engagementData) {
-                  // Group by 5-minute intervals and average the scores
                   const timePoints: {[key: string]: number[]} = {};
                   
                   engagementData.forEach(point => {
@@ -321,15 +298,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
   
-  // Submit quiz response function
   const submitQuizResponse = async (response: Omit<QuizResponse, 'id' | 'timestamp'>) => {
     try {
-      // Add response to Supabase
       const { data: newResponse, error } = await supabase
         .from('responses')
         .insert({
           question_id: response.questionId,
-          student_id: user?.id || response.studentId, // Use logged in user if available
+          student_id: user?.id || response.studentId,
           selected_option_index: response.selectedOptionIndex,
           is_correct: response.isCorrect,
           response_time: response.responseTime
@@ -354,7 +329,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       console.log("Quiz response submitted:", formattedResponse);
       setResponseSubmitted(true);
       
-      // Update local state to reflect the new response
       if (dashboard) {
         const updatedResponses = [...dashboard.studentResponses, formattedResponse];
         const correctResponses = updatedResponses.filter(r => r.isCorrect).length;
@@ -367,7 +341,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         });
       }
   
-      // After 3 seconds, reset the quiz state
       setTimeout(() => {
         setIsQuizActive(false);
         setResponseSubmitted(false);
@@ -387,7 +360,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Generate new question function
   const generateNewQuestion = async () => {
     if (!session) {
       toast({
@@ -400,18 +372,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     
     try {
       if (upcomingQuestions.length > 0) {
-        // Use existing upcoming question
         const nextQuestion = upcomingQuestions[0];
         setActiveQuestion(nextQuestion);
         setUpcomingQuestions(upcomingQuestions.slice(1));
         setIsQuizActive(true);
         
-        // Update next question time
         if (session) {
           setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
         }
         
-        // Update dashboard
         if (dashboard) {
           setDashboard({
             ...dashboard,
@@ -421,7 +390,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   
         console.log("New question generated:", nextQuestion);
       } else {
-        // No more questions, try to fetch from API
         await fetchGeminiQuestion();
       }
     } catch (error) {
@@ -434,8 +402,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Fetch Gemini-generated question from API
-  const fetchGeminiQuestion = async () => {
+  const fetchGeminiQuestion = async (): Promise<QuizQuestion | void> {
     if (!session) {
       toast({
         title: "No active session",
@@ -450,7 +417,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const mcqQuestion = await fetchLatestMCQ();
       const quizQuestion = mapMCQToQuizQuestion(mcqQuestion);
       
-      // Add question to database
       const { data: newQuestion, error } = await supabase
         .from('questions')
         .insert({
@@ -468,7 +434,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         throw error;
       }
       
-      // Format new question
       const formattedQuestion: QuizQuestion = {
         id: newQuestion.id,
         question: newQuestion.question,
@@ -479,11 +444,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         transcriptSegment: newQuestion.transcript_segment || undefined
       };
       
-      // Set as active question and show it
       setActiveQuestion(formattedQuestion);
       setIsQuizActive(true);
       
-      // Update dashboard
       if (dashboard) {
         setDashboard({
           ...dashboard,
@@ -491,7 +454,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         });
       }
       
-      // Update next question time
       if (session) {
         setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
       }
