@@ -7,6 +7,7 @@ import AttentionChart from "./AttentionChart";
 import ParticipationCard from "./ParticipationCard";
 import StudentList from "./StudentList";
 import CurrentQuizCard from "./CurrentQuizCard";
+import { Badge } from "../ui/badge";
 
 const ProfessorView = () => {
   const { dashboard, session } = useApp();
@@ -47,15 +48,10 @@ const ProfessorView = () => {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="md:col-span-2">
-          <div className="h-[500px] flex flex-col justify-center items-center bg-gray-50 border rounded-lg">
-            <div className="text-center">
-              <h3 className="text-lg font-medium">Zoom Integration Active</h3>
-              <p className="text-sm text-gray-500 max-w-xs mt-2">
-                Recording lecture and generating quiz questions based on content.
-              </p>
-            </div>
-          </div>
+        <div className="md:col-span-2 flex justify-center items-center bg-gray-50 border rounded-lg p-4">
+          <Badge variant="default" className="bg-quiz-mint text-white">
+            Zoom Recording Active
+          </Badge>
         </div>
         <CurrentQuizCard 
           activeQuestion={dashboard.activeQuestion} 
