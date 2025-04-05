@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { supabase } from "@/integrations/supabase/client";
 import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
 import { useToast } from '@/components/ui/use-toast';
 import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
-import { fetchLatestMCQ, mapMCQToQuizQuestion } from '@/services/mcqService';
+import { fetchLatestMCQ, mapMCQToQuizQuestion, generateMCQ, getQuizInterval, setQuizInterval } from '@/services/mcqService';
 
 // Define a type for profile data from Supabase
 type Profile = {
@@ -28,11 +28,17 @@ type AppContextType = {
   responseSubmitted: boolean;
   generateNewQuestion: () => void;
   fetchGeminiQuestion: () => Promise<void>;
+  generateQuizFromTranscript: () => Promise<void>;
   nextQuestionTime: number | null;
   role: Role;
   setRole: (role: Role) => void;
   loading: boolean;
   signOut: () => Promise<void>;
+  autoQuizEnabled: boolean;
+  setAutoQuizEnabled: (enabled: boolean) => void;
+  quizIntervalMinutes: number;
+  setQuizIntervalMinutes: (minutes: number) => Promise<void>;
+  timeUntilNextQuiz: number | null;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -58,7 +64,95 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     mockSession ? Date.now() + mockSession.quizFrequencyMinutes * 60 * 1000 : null
   );
   const [loading, setLoading] = useState(true);
+  const [autoQuizEnabled, setAutoQuizEnabled] = useState(false);
+  const [quizIntervalMinutes, setQuizIntervalMinutesState] = useState(5); // Default 5 minutes
+  const [timeUntilNextQuiz, setTimeUntilNextQuiz] = useState<number | null>(null);
+  const autoQuizTimer = useRef<number | null>(null);
   const { toast } = useToast();
+  
+  // Load quiz interval from server on initial load
+  useEffect(() => {
+    const fetchQuizInterval = async () => {
+      try {
+        const interval = await getQuizInterval();
+        setQuizIntervalMinutesState(interval);
+      } catch (error) {
+        console.error("Failed to fetch quiz interval:", error);
+      }
+    };
+    
+    fetchQuizInterval();
+  }, []);
+  
+  // Set quiz interval (saves to server)
+  const setQuizIntervalMinutes = async (minutes: number) => {
+    try {
+      await setQuizInterval(minutes);
+      setQuizIntervalMinutesState(minutes);
+      
+      // Update next question time
+      if (autoQuizEnabled) {
+        resetAutoQuizTimer(minutes);
+      }
+      
+      toast({
+        title: "Quiz interval updated",
+        description: `Automatic quizzes will now appear every ${minutes} minutes.`,
+      });
+    } catch (error) {
+      console.error("Failed to set quiz interval:", error);
+      toast({
+        title: "Error setting quiz interval",
+        description: "Failed to update quiz interval. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Effect for auto quiz timer
+  useEffect(() => {
+    if (autoQuizEnabled) {
+      resetAutoQuizTimer();
+    } else {
+      // Clear the timer if automatic quizzes are disabled
+      if (autoQuizTimer.current) {
+        clearInterval(autoQuizTimer.current);
+        autoQuizTimer.current = null;
+      }
+      setTimeUntilNextQuiz(null);
+    }
+    
+    return () => {
+      if (autoQuizTimer.current) {
+        clearInterval(autoQuizTimer.current);
+      }
+    };
+  }, [autoQuizEnabled]);
+  
+  // Reset the auto quiz timer
+  const resetAutoQuizTimer = (minutes?: number) => {
+    if (autoQuizTimer.current) {
+      clearInterval(autoQuizTimer.current);
+    }
+    
+    const intervalMs = (minutes || quizIntervalMinutes) * 60 * 1000;
+    const endTime = Date.now() + intervalMs;
+    
+    setTimeUntilNextQuiz(intervalMs);
+    
+    // Update remaining time every second
+    autoQuizTimer.current = window.setInterval(() => {
+      const remaining = endTime - Date.now();
+      
+      if (remaining <= 0) {
+        // Time to generate a quiz!
+        generateQuizFromTranscript();
+        resetAutoQuizTimer(); // Reset timer for next quiz
+      } else {
+        setTimeUntilNextQuiz(remaining);
+      }
+    }, 1000) as unknown as number;
+  };
   
   // Authentication effect
   useEffect(() => {
@@ -248,6 +342,50 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       });
     }
   };
+  
+  // Generate a new quiz from the current transcript
+  const generateQuizFromTranscript = async () => {
+    try {
+      setLoading(true);
+      
+      // Call backend to generate MCQ
+      await generateMCQ();
+      
+      // Wait a moment for generation to complete
+      setTimeout(async () => {
+        // Fetch the newly generated MCQ
+        const mcqQuestion = await fetchLatestMCQ();
+        const quizQuestion = mapMCQToQuizQuestion(mcqQuestion);
+        
+        // Set as active question and show it
+        setActiveQuestion(quizQuestion);
+        setIsQuizActive(true);
+        
+        // Update dashboard
+        if (dashboard) {
+          setDashboard({
+            ...dashboard,
+            activeQuestion: quizQuestion,
+          });
+        }
+        
+        setLoading(false);
+        
+        toast({
+          title: "New question generated",
+          description: "A new quiz has been generated from the current lecture transcript.",
+        });
+      }, 2000);
+    } catch (error) {
+      setLoading(false);
+      console.error("Failed to generate quiz from transcript:", error);
+      toast({
+        title: "Error generating question",
+        description: "Failed to generate a new question. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <AppContext.Provider value={{
@@ -264,9 +402,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       responseSubmitted,
       generateNewQuestion,
       fetchGeminiQuestion,
+      generateQuizFromTranscript,
       nextQuestionTime,
       loading,
-      signOut
+      signOut,
+      autoQuizEnabled,
+      setAutoQuizEnabled,
+      quizIntervalMinutes,
+      setQuizIntervalMinutes,
+      timeUntilNextQuiz
     }}>
       {children}
     </AppContext.Provider>

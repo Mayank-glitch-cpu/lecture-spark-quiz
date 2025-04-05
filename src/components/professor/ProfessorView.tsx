@@ -1,4 +1,3 @@
-
 import { useApp } from "../../contexts/AppContext";
 import DashboardHeader from "./DashboardHeader";
 import { Activity, BarChart3, Clock, Users } from "lucide-react";
@@ -8,6 +7,7 @@ import ParticipationCard from "./ParticipationCard";
 import StudentList from "./StudentList";
 import ZoomIntegration from "../ZoomIntegration";
 import CurrentQuizCard from "./CurrentQuizCard";
+import AutoQuizSettings from "./AutoQuizSettings";
 
 const ProfessorView = () => {
   const { dashboard, session } = useApp();
@@ -57,12 +57,16 @@ const ProfessorView = () => {
         />
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <AttentionChart data={dashboard.attentionOverTime} />
         <ParticipationCard 
           participationRate={dashboard.participationRate} 
           correctAnswerRate={dashboard.correctAnswerRate}
         />
+        <AutoQuizSettings />
+      </div>
+      
+      <div className="grid grid-cols-1 mb-6">
         <StudentList students={dashboard.students} />
       </div>
     </div>
