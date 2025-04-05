@@ -1,16 +1,25 @@
 extends layout
 
 block content
+  if isZoom
+    div#root
+      // This is where the React application will be mounted
+  else
     h1=title
-    if isZoom
-        p Welcome to your Zoom App
-    else
-        p You're viewing your Zoom App through the browser.&nbsp;
-            a(href=`/install`) Click Here
-            | &nbsp;to install your app in Zoom.
+    p You're viewing your Zoom App through the browser.&nbsp;
+      a(href=`/install`) Click Here
+      | &nbsp;to install your app in Zoom.
 
 append scripts
-    if isZoom
-        script(type="module" src='/js/bundle.mjs')
-        script(nomodule src='/js/bundle.js')
+  if isZoom
+    // Load Zoom JS SDK
+    script(type="module" src='/js/bundle.mjs')
+    script(nomodule src='/js/bundle.js')
+    
+    // Load our Zoom-React bridge script
+    script(src='/js/react-zoom-bridge.js')
+    
+    // Load React application scripts
+    script(type="module" src='/react-app/assets/index-Cjgm0d2Q.js')
+    link(rel="stylesheet" href='/react-app/assets/index-CKLnyKoA.css')
 

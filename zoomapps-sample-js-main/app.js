@@ -11,6 +11,7 @@ import { fileURLToPath, URL } from 'url';
 import { start } from './server/server.js';
 import indexRoutes from './server/routes/index.js';
 import authRoutes from './server/routes/auth.js';
+import apiRoutes from './server/routes/api.js';
 
 import { appName, port, redirectUri } from './config.js';
 
@@ -66,11 +67,11 @@ const headers = {
     crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
         directives: {
-            'default-src': 'self',
-            styleSrc: ["'self'"],
-            scriptSrc: ["'self'", 'https://appssdk.zoom.us/sdk.min.js'],
-            imgSrc: ["'self'", `https://${redirectHost}`],
-            'connect-src': 'self',
+            'default-src': ['self', 'https://appssdk.zoom.us'],
+            styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles for React
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://appssdk.zoom.us/sdk.min.js'], // Allow scripts for React
+            imgSrc: ["'self'", `https://${redirectHost}`, 'data:'], // Allow data: URIs for images
+            'connect-src': ['self', `https://${redirectHost}`, 'https://appssdk.zoom.us'], // Allow connections for API
             'base-uri': 'self',
             'form-action': 'self',
         },
@@ -88,9 +89,13 @@ app.use(logger('dev', { stream: { write: (msg) => dbg(msg) } }));
 // serve our app folder
 app.use(express.static(staticDir));
 
+// Also serve public folder for our static assets
+app.use(express.static(`${__dirname}/public`));
+
 /* Routing */
 app.use('/', indexRoutes);
 app.use('/auth', authRoutes);
+app.use('/api', apiRoutes); // Register our new API routes
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

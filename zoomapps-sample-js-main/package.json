@@ -9,7 +9,6 @@
     "start": "node app.js",
     "dev": "node scripts/dev.js",
     "build": "rollup -c",
-    "prepare": "npx husky install",
     "postprepare": "node scripts/gen-secrets.cjs"
   },
   "dependencies": {
@@ -41,7 +40,6 @@
     "envsub": "^4.0.7",
     "eslint": "^8.9.0",
     "eslint-config-prettier": "^8.4.0",
-    "husky": "^7.0.4",
     "lint-staged": "^12.3.4",
     "nodemon": "^3.0.1",
     "prettier": "^2.5.1",
