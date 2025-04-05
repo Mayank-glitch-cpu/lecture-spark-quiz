@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from "@/integrations/supabase/client";
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
@@ -402,7 +403,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const fetchGeminiQuestion = async (): Promise<QuizQuestion | void> {
+  const fetchGeminiQuestion = async (): Promise<QuizQuestion | void> => {
     if (!session) {
       toast({
         title: "No active session",
