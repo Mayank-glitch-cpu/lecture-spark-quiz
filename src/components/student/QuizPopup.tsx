@@ -12,7 +12,7 @@ interface QuizPopupProps {
 }
 
 const QuizPopup = ({ question }: QuizPopupProps) => {
-  const { submitQuizResponse, responseSubmitted } = useApp();
+  const { submitQuizResponse, responseSubmitted, user } = useApp();
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const [startTime] = useState<number>(Date.now());
@@ -31,7 +31,7 @@ const QuizPopup = ({ question }: QuizPopupProps) => {
 
     submitQuizResponse({
       questionId: question.id,
-      studentId: "s1", // In a real app, this would be the actual student ID
+      studentId: user?.id || "anonymous", // Use the current user ID if available
       selectedOptionIndex: selectedOption,
       isCorrect,
       responseTime,

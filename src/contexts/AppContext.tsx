@@ -1,12 +1,11 @@
+
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from "@/integrations/supabase/client";
-import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
 import { useToast } from '@/components/ui/use-toast';
 import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
-import { fetchLatestMCQ, mapMCQToQuizQuestion } from '@/services/mcqService';
+import { fetchLatestMCQ, mapMCQToQuizQuestion, generateMCQ, getQuizInterval, setQuizInterval } from '@/services/mcqService';
 
-// Define a type for profile data from Supabase
 type Profile = {
   id: string;
   display_name?: string | null;
@@ -27,12 +26,17 @@ type AppContextType = {
   submitQuizResponse: (response: Omit<QuizResponse, 'id' | 'timestamp'>) => void;
   responseSubmitted: boolean;
   generateNewQuestion: () => void;
-  fetchGeminiQuestion: () => Promise<void>;
+  fetchGeminiQuestion: () => Promise<QuizQuestion | void>;
   nextQuestionTime: number | null;
   role: Role;
   setRole: (role: Role) => void;
   loading: boolean;
   signOut: () => Promise<void>;
+  autoQuizEnabled: boolean;
+  setAutoQuizEnabled: (enabled: boolean) => void;
+  quizIntervalMinutes: number;
+  setQuizIntervalMinutes: (minutes: number) => Promise<void>;
+  timeUntilNextQuiz: number | null;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -48,16 +52,18 @@ export const useApp = () => {
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<Role>("student");
-  const [session, setSession] = useState<Session | null>(mockSession);
-  const [dashboard, setDashboard] = useState<Dashboard | null>(mockDashboard);
-  const [activeQuestion, setActiveQuestion] = useState<QuizQuestion | null>(mockActiveQuestion);
-  const [upcomingQuestions, setUpcomingQuestions] = useState<QuizQuestion[]>(mockUpcomingQuestions);
+  const [session, setSession] = useState<Session | null>(null);
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [activeQuestion, setActiveQuestion] = useState<QuizQuestion | null>(null);
+  const [upcomingQuestions, setUpcomingQuestions] = useState<QuizQuestion[]>([]);
   const [isQuizActive, setIsQuizActive] = useState(false);
   const [responseSubmitted, setResponseSubmitted] = useState(false);
-  const [nextQuestionTime, setNextQuestionTime] = useState<number | null>(
-    mockSession ? Date.now() + mockSession.quizFrequencyMinutes * 60 * 1000 : null
-  );
+  const [nextQuestionTime, setNextQuestionTime] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [autoQuizEnabled, setAutoQuizEnabled] = useState(false);
+  const [quizIntervalMinutes, setQuizIntervalMinutesState] = useState(5); // Default 5 minutes
+  const [timeUntilNextQuiz, setTimeUntilNextQuiz] = useState<number | null>(null);
+  const autoQuizTimer = useRef<number | null>(null);
   const { toast } = useToast();
   
   // Authentication effect
@@ -65,7 +71,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const setupAuth = async () => {
       setLoading(true);
       
-      // Set up auth state listener FIRST
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         (event, authSession) => {
           if (event === 'SIGNED_IN' && authSession?.user) {
@@ -75,7 +80,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
               name: authSession.user.user_metadata.display_name || authSession.user.email,
             });
             
-            // Fetch profile after state update with setTimeout to avoid authentication deadlock
             setTimeout(async () => {
               const { data: profile, error } = await supabase
                 .from('profiles')
@@ -98,7 +102,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
       );
       
-      // THEN check for existing session
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (currentSession?.user) {
         setUser({
@@ -107,7 +110,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           name: currentSession.user.user_metadata.display_name || currentSession.user.email,
         });
 
-        // Get user profile to determine role
         const { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
@@ -121,7 +123,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       
       setLoading(false);
       
-      // Cleanup
       return () => {
         subscription.unsubscribe();
       };
@@ -129,6 +130,167 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     
     setupAuth();
   }, []);
+
+  useEffect(() => {
+    const fetchSessionData = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+          
+        if (sessionError) {
+          console.error("Error fetching session:", sessionError);
+          return;
+        }
+        
+        if (sessionData) {
+          const currentSession: Session = {
+            id: sessionData.id,
+            title: sessionData.title,
+            professorId: sessionData.professor_id,
+            startTime: sessionData.start_time,
+            endTime: sessionData.end_time || undefined,
+            quizFrequencyMinutes: sessionData.quiz_frequency_minutes,
+            topicTags: sessionData.topic_tags || [],
+            questions: [],
+            activeStudents: 0
+          };
+          
+          const { count, error: countError } = await supabase
+            .from('session_students')
+            .select('*', { count: 'exact', head: true })
+            .eq('session_id', sessionData.id);
+            
+          if (!countError && count !== null) {
+            currentSession.activeStudents = count;
+          }
+          
+          const { data: questions, error: questionsError } = await supabase
+            .from('questions')
+            .select('*')
+            .eq('session_id', sessionData.id)
+            .order('created_at', { ascending: false });
+            
+          if (!questionsError && questions) {
+            currentSession.questions = questions.map(q => ({
+              id: q.id,
+              question: q.question,
+              options: Array.isArray(q.options) ? q.options : [],
+              correctOptionIndex: q.correct_option_index,
+              topicTag: q.topic_tag || undefined,
+              timestamp: q.created_at,
+              transcriptSegment: q.transcript_segment || undefined
+            }));
+            
+            if (currentSession.questions.length > 0) {
+              setActiveQuestion(currentSession.questions[0]);
+            }
+            
+            if (currentSession.questions.length > 1) {
+              setUpcomingQuestions(currentSession.questions.slice(1));
+            }
+          }
+          
+          setSession(currentSession);
+          
+          if (currentSession.quizFrequencyMinutes > 0) {
+            setNextQuestionTime(Date.now() + currentSession.quizFrequencyMinutes * 60 * 1000);
+          }
+          
+          if (currentSession.questions.length > 0) {
+            const activeQuestionId = currentSession.questions[0].id;
+            const { data: responses, error: responsesError } = await supabase
+              .from('responses')
+              .select('*')
+              .eq('question_id', activeQuestionId);
+              
+            if (!responsesError && responses) {
+              const formattedResponses: QuizResponse[] = responses.map(r => ({
+                id: r.id,
+                questionId: r.question_id,
+                studentId: r.student_id,
+                selectedOptionIndex: r.selected_option_index,
+                isCorrect: r.is_correct,
+                responseTime: r.response_time,
+                timestamp: r.created_at
+              }));
+              
+              const { data: studentProfiles, error: studentsError } = await supabase
+                .from('profiles')
+                .select('*')
+                .in('id', responses.map(r => r.student_id));
+                
+              if (!studentsError && studentProfiles) {
+                const dashboardData: Dashboard = {
+                  session: currentSession,
+                  activeQuestion: currentSession.questions[0],
+                  studentResponses: formattedResponses,
+                  students: studentProfiles.map(s => {
+                    const studentResponses = formattedResponses.filter(r => r.studentId === s.id);
+                    return {
+                      id: s.id,
+                      name: s.display_name || 'Anonymous',
+                      responses: studentResponses,
+                      attentionScore: 85
+                    };
+                  }),
+                  participationRate: Math.round((formattedResponses.length / currentSession.activeStudents) * 100) || 0,
+                  correctAnswerRate: Math.round((formattedResponses.filter(r => r.isCorrect).length / formattedResponses.length) * 100) || 0,
+                  attentionOverTime: []
+                };
+                
+                const { data: engagementData, error: engagementError } = await supabase
+                  .from('engagement')
+                  .select('*')
+                  .eq('session_id', sessionData.id)
+                  .order('timestamp', { ascending: true });
+                  
+                if (!engagementError && engagementData) {
+                  const timePoints: {[key: string]: number[]} = {};
+                  
+                  engagementData.forEach(point => {
+                    const date = new Date(point.timestamp);
+                    const timeKey = `${String(date.getHours()).padStart(2, '0')}:${String(Math.floor(date.getMinutes() / 5) * 5).padStart(2, '0')}`;
+                    
+                    if (!timePoints[timeKey]) {
+                      timePoints[timeKey] = [];
+                    }
+                    
+                    timePoints[timeKey].push(point.attention_score);
+                  });
+                  
+                  dashboardData.attentionOverTime = Object.keys(timePoints).map(time => ({
+                    time,
+                    score: Math.round(timePoints[time].reduce((sum, score) => sum + score, 0) / timePoints[time].length)
+                  })).sort((a, b) => a.time.localeCompare(b.time));
+                }
+                
+                setDashboard(dashboardData);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error setting up session data:", error);
+        toast({
+          title: "Error loading data",
+          description: "Failed to load session data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchSessionData();
+  }, [user]);
 
   const signOut = async () => {
     try {
@@ -147,85 +309,162 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
   
-  // Submit quiz response function
-  const submitQuizResponse = (response: Omit<QuizResponse, 'id' | 'timestamp'>) => {
-    const newResponse = {
-      ...response,
-      id: `r${Date.now()}`,
-      timestamp: new Date().toISOString()
-    };
-    
-    // In a full implementation, this would be sent to Supabase
-    console.log("Quiz response submitted:", newResponse);
-    setResponseSubmitted(true);
-    
-    // Update local state to reflect the new response
-    if (dashboard) {
-      setDashboard({
-        ...dashboard,
-        studentResponses: [...dashboard.studentResponses, newResponse],
-        participationRate: Math.min(100, dashboard.participationRate + 5),
-        correctAnswerRate: newResponse.isCorrect 
-          ? Math.min(100, dashboard.correctAnswerRate + 3) 
-          : Math.max(0, dashboard.correctAnswerRate - 2)
-      });
-    }
-
-    // After 3 seconds, reset the quiz state
-    setTimeout(() => {
-      setIsQuizActive(false);
-      setResponseSubmitted(false);
-    }, 3000);
-  };
-
-  // Generate new question function
-  const generateNewQuestion = () => {
-    if (upcomingQuestions.length > 0) {
-      // In a full implementation, this would trigger an API call
-      const nextQuestion = upcomingQuestions[0];
-      setActiveQuestion(nextQuestion);
-      setUpcomingQuestions(upcomingQuestions.slice(1));
-      setIsQuizActive(true);
-      
-      // Update next question time
-      if (session) {
-        setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
+  const submitQuizResponse = async (response: Omit<QuizResponse, 'id' | 'timestamp'>) => {
+    try {
+      const { data: newResponse, error } = await supabase
+        .from('responses')
+        .insert({
+          question_id: response.questionId,
+          student_id: user?.id || response.studentId,
+          selected_option_index: response.selectedOptionIndex,
+          is_correct: response.isCorrect,
+          response_time: response.responseTime
+        })
+        .select()
+        .single();
+        
+      if (error) {
+        throw error;
       }
       
-      // Simulate updating dashboard
+      const formattedResponse: QuizResponse = {
+        id: newResponse.id,
+        questionId: newResponse.question_id,
+        studentId: newResponse.student_id,
+        selectedOptionIndex: newResponse.selected_option_index,
+        isCorrect: newResponse.is_correct,
+        responseTime: newResponse.response_time,
+        timestamp: newResponse.created_at
+      };
+      
+      console.log("Quiz response submitted:", formattedResponse);
+      setResponseSubmitted(true);
+      
       if (dashboard) {
+        const updatedResponses = [...dashboard.studentResponses, formattedResponse];
+        const correctResponses = updatedResponses.filter(r => r.isCorrect).length;
+        
         setDashboard({
           ...dashboard,
-          activeQuestion: nextQuestion,
+          studentResponses: updatedResponses,
+          participationRate: Math.min(100, Math.round((updatedResponses.length / (dashboard.session.activeStudents || 1)) * 100)),
+          correctAnswerRate: Math.min(100, Math.round((correctResponses / updatedResponses.length) * 100))
         });
       }
-
-      console.log("New question generated:", nextQuestion);
-    } else {
-      console.log("No more questions in queue");
+  
+      setTimeout(() => {
+        setIsQuizActive(false);
+        setResponseSubmitted(false);
+      }, 3000);
+      
+      toast({
+        title: "Response submitted",
+        description: response.isCorrect ? "Your answer is correct!" : "Your answer is incorrect.",
+      });
+    } catch (error) {
+      console.error("Error submitting response:", error);
+      toast({
+        title: "Error submitting response",
+        description: "Failed to submit your response. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
-  // Fetch Gemini-generated question from API
-  const fetchGeminiQuestion = async () => {
+  const generateNewQuestion = async () => {
+    if (!session) {
+      toast({
+        title: "No active session",
+        description: "There is no active session to generate questions for.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      if (upcomingQuestions.length > 0) {
+        const nextQuestion = upcomingQuestions[0];
+        setActiveQuestion(nextQuestion);
+        setUpcomingQuestions(upcomingQuestions.slice(1));
+        setIsQuizActive(true);
+        
+        if (session) {
+          setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
+        }
+        
+        if (dashboard) {
+          setDashboard({
+            ...dashboard,
+            activeQuestion: nextQuestion,
+          });
+        }
+  
+        console.log("New question generated:", nextQuestion);
+      } else {
+        await fetchGeminiQuestion();
+      }
+    } catch (error) {
+      console.error("Error generating question:", error);
+      toast({
+        title: "Error generating question",
+        description: "Failed to generate a new question. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const fetchGeminiQuestion = async (): Promise<QuizQuestion | void> => {
+    if (!session) {
+      toast({
+        title: "No active session",
+        description: "There is no active session to generate questions for.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       setLoading(true);
       const mcqQuestion = await fetchLatestMCQ();
       const quizQuestion = mapMCQToQuizQuestion(mcqQuestion);
       
-      // Set as active question and show it
-      setActiveQuestion(quizQuestion);
+      const { data: newQuestion, error } = await supabase
+        .from('questions')
+        .insert({
+          session_id: session.id,
+          question: quizQuestion.question,
+          options: quizQuestion.options,
+          correct_option_index: quizQuestion.correctOptionIndex,
+          topic_tag: quizQuestion.topicTag || null,
+          transcript_segment: quizQuestion.transcriptSegment || null
+        })
+        .select()
+        .single();
+        
+      if (error) {
+        throw error;
+      }
+      
+      const formattedQuestion: QuizQuestion = {
+        id: newQuestion.id,
+        question: newQuestion.question,
+        options: Array.isArray(newQuestion.options) ? newQuestion.options : [],
+        correctOptionIndex: newQuestion.correct_option_index,
+        timestamp: newQuestion.created_at,
+        topicTag: newQuestion.topic_tag || undefined,
+        transcriptSegment: newQuestion.transcript_segment || undefined
+      };
+      
+      setActiveQuestion(formattedQuestion);
       setIsQuizActive(true);
       
-      // Update dashboard
       if (dashboard) {
         setDashboard({
           ...dashboard,
-          activeQuestion: quizQuestion,
+          activeQuestion: formattedQuestion,
         });
       }
       
-      // Update next question time
       if (session) {
         setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
       }
@@ -237,13 +476,57 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         description: "A new quiz question has been generated from the lecture content.",
       });
       
-      return quizQuestion;
+      return formattedQuestion;
     } catch (error) {
       setLoading(false);
       console.error("Failed to fetch Gemini question:", error);
       toast({
         title: "Error fetching question",
         description: "Failed to load the generated question. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Generate a new quiz from the current transcript
+  const generateQuizFromTranscript = async () => {
+    try {
+      setLoading(true);
+      
+      // Call backend to generate MCQ
+      await generateMCQ();
+      
+      // Wait a moment for generation to complete
+      setTimeout(async () => {
+        // Fetch the newly generated MCQ
+        const mcqQuestion = await fetchLatestMCQ();
+        const quizQuestion = mapMCQToQuizQuestion(mcqQuestion);
+        
+        // Set as active question and show it
+        setActiveQuestion(quizQuestion);
+        setIsQuizActive(true);
+        
+        // Update dashboard
+        if (dashboard) {
+          setDashboard({
+            ...dashboard,
+            activeQuestion: quizQuestion,
+          });
+        }
+        
+        setLoading(false);
+        
+        toast({
+          title: "New question generated",
+          description: "A new quiz has been generated from the current lecture transcript.",
+        });
+      }, 2000);
+    } catch (error) {
+      setLoading(false);
+      console.error("Failed to generate quiz from transcript:", error);
+      toast({
+        title: "Error generating question",
+        description: "Failed to generate a new question. Please try again.",
         variant: "destructive",
       });
     }
@@ -264,9 +547,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       responseSubmitted,
       generateNewQuestion,
       fetchGeminiQuestion,
+      generateQuizFromTranscript,
       nextQuestionTime,
       loading,
-      signOut
+      signOut,
+      autoQuizEnabled,
+      setAutoQuizEnabled,
+      quizIntervalMinutes,
+      setQuizIntervalMinutes,
+      timeUntilNextQuiz
     }}>
       {children}
     </AppContext.Provider>
