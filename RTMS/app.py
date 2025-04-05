@@ -3,17 +3,21 @@ import uvicorn
 from pydantic import BaseModel
 from typing import List
 import json
+from dotenv import load_dotenv
+import os
 
 app = FastAPI()
 transcript_data = []
-
+load_dotenv()
+user = os.getenv("user_name")
 class TranscriptMsg(BaseModel):
     msg_type: int
     content: dict
+    user_name: str
 
 @app.post("/ingest")
 async def ingest_transcript(msg: TranscriptMsg):
-    if msg.msg_type == 17 and "data" in msg.content:
+    if msg.msg_type == 17 and msg.user_name== user  and "data" in msg.content:
         transcript_data.append(msg.content)
         print(f"📝 {msg.content['user_name']}: {msg.content['data']}")
     return {"status": "ok"}
