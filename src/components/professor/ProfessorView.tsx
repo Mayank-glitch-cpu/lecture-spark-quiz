@@ -5,9 +5,8 @@ import MetricCard from "./MetricCard";
 import AttentionChart from "./AttentionChart";
 import ParticipationCard from "./ParticipationCard";
 import StudentList from "./StudentList";
-import ZoomIntegration from "../ZoomIntegration";
 import CurrentQuizCard from "./CurrentQuizCard";
-import AutoQuizSettings from "./AutoQuizSettings";
+import { Badge } from "../ui/badge";
 
 const ProfessorView = () => {
   const { dashboard, session } = useApp();
@@ -48,8 +47,10 @@ const ProfessorView = () => {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="md:col-span-2">
-          <ZoomIntegration />
+        <div className="md:col-span-2 flex justify-center items-center bg-gray-50 border rounded-lg p-4">
+          <Badge variant="default" className="bg-quiz-mint text-white">
+            Zoom Recording Active
+          </Badge>
         </div>
         <CurrentQuizCard 
           activeQuestion={dashboard.activeQuestion} 

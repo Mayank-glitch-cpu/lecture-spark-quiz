@@ -1,9 +1,9 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../../contexts/AppContext";
-import ZoomIntegration from "../ZoomIntegration";
 import QuizPopup from "./QuizPopup";
 import { Bell } from "lucide-react";
+import { Badge } from "../ui/badge";
 
 const StudentView = () => {
   const { 
@@ -47,17 +47,20 @@ const StudentView = () => {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Current Lecture</h2>
-          {timeToNext && timeToNext > 0 && !isQuizActive && (
-            <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
-              timeToNext < 60 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
-            }`}>
-              <Bell className="h-3 w-3 mr-1" />
-              Next quiz in {formatTime(timeToNext)}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {timeToNext && timeToNext > 0 && !isQuizActive && (
+              <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
+                timeToNext < 60 ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-600'
+              }`}>
+                <Bell className="h-3 w-3 mr-1" />
+                Next quiz in {formatTime(timeToNext)}
+              </div>
+            )}
+            <Badge variant="default" className="bg-quiz-mint text-white">
+              Zoom Recording Active
+            </Badge>
+          </div>
         </div>
-        
-        <ZoomIntegration />
         
         {isQuizActive && activeQuestion && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/30 z-50 p-4">
