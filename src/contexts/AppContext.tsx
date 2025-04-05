@@ -1,10 +1,10 @@
-
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from "@/integrations/supabase/client";
 import { mockActiveQuestion, mockDashboard, mockSession, mockUpcomingQuestions } from '../data/mockData';
 import { Dashboard, QuizQuestion, QuizResponse, Role, Session, User } from '../types';
 import { useToast } from '@/components/ui/use-toast';
 import { PostgrestError, User as SupabaseUser } from '@supabase/supabase-js';
+import { fetchLatestMCQ, mapMCQToQuizQuestion } from '@/services/mcqService';
 
 // Define a type for profile data from Supabase
 type Profile = {
@@ -27,6 +27,7 @@ type AppContextType = {
   submitQuizResponse: (response: Omit<QuizResponse, 'id' | 'timestamp'>) => void;
   responseSubmitted: boolean;
   generateNewQuestion: () => void;
+  fetchGeminiQuestion: () => Promise<void>;
   nextQuestionTime: number | null;
   role: Role;
   setRole: (role: Role) => void;
@@ -205,6 +206,49 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Fetch Gemini-generated question from API
+  const fetchGeminiQuestion = async () => {
+    try {
+      setLoading(true);
+      const mcqQuestion = await fetchLatestMCQ();
+      const quizQuestion = mapMCQToQuizQuestion(mcqQuestion);
+      
+      // Set as active question and show it
+      setActiveQuestion(quizQuestion);
+      setIsQuizActive(true);
+      
+      // Update dashboard
+      if (dashboard) {
+        setDashboard({
+          ...dashboard,
+          activeQuestion: quizQuestion,
+        });
+      }
+      
+      // Update next question time
+      if (session) {
+        setNextQuestionTime(Date.now() + session.quizFrequencyMinutes * 60 * 1000);
+      }
+      
+      setLoading(false);
+      
+      toast({
+        title: "New question available",
+        description: "A new quiz question has been generated from the lecture content.",
+      });
+      
+      return quizQuestion;
+    } catch (error) {
+      setLoading(false);
+      console.error("Failed to fetch Gemini question:", error);
+      toast({
+        title: "Error fetching question",
+        description: "Failed to load the generated question. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <AppContext.Provider value={{
       user,
@@ -219,6 +263,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       submitQuizResponse,
       responseSubmitted,
       generateNewQuestion,
+      fetchGeminiQuestion,
       nextQuestionTime,
       loading,
       signOut

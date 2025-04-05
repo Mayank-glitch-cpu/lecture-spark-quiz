@@ -1,8 +1,9 @@
-
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card";
 import { QuizQuestion, QuizResponse } from "../../types";
 import { Badge } from "../ui/badge";
-import { CheckCircle, Clock, HelpCircle, XCircle } from "lucide-react";
+import { Button } from "../ui/button";
+import { CheckCircle, Clock, HelpCircle, Sparkles, XCircle } from "lucide-react";
+import { useApp } from "../../contexts/AppContext";
 
 interface CurrentQuizCardProps {
   activeQuestion: QuizQuestion | undefined;
@@ -10,6 +11,8 @@ interface CurrentQuizCardProps {
 }
 
 const CurrentQuizCard = ({ activeQuestion, responses }: CurrentQuizCardProps) => {
+  const { generateNewQuestion, fetchGeminiQuestion, loading } = useApp();
+
   if (!activeQuestion) {
     return (
       <Card>
@@ -20,6 +23,23 @@ const CurrentQuizCard = ({ activeQuestion, responses }: CurrentQuizCardProps) =>
           <HelpCircle className="h-10 w-10 mb-2 text-gray-300" />
           <p>No active quiz question</p>
         </CardContent>
+        <CardFooter className="flex flex-col gap-2">
+          <Button 
+            onClick={generateNewQuestion}
+            className="w-full"
+          >
+            Generate Quiz Question
+          </Button>
+          <Button 
+            onClick={fetchGeminiQuestion} 
+            variant="outline" 
+            className="w-full flex items-center gap-2"
+            disabled={loading}
+          >
+            <Sparkles className="h-4 w-4" />
+            Generate from Lecture Transcript
+          </Button>
+        </CardFooter>
       </Card>
     );
   }
@@ -84,6 +104,17 @@ const CurrentQuizCard = ({ activeQuestion, responses }: CurrentQuizCardProps) =>
           </div>
         </div>
       </CardContent>
+      <CardFooter className="pt-2">
+        <Button 
+          onClick={fetchGeminiQuestion} 
+          variant="outline" 
+          className="w-full flex items-center gap-2"
+          disabled={loading}
+        >
+          <Sparkles className="h-4 w-4" />
+          Generate New Question from Lecture
+        </Button>
+      </CardFooter>
     </Card>
   );
 };
