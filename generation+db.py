@@ -5,6 +5,13 @@ import json
 import re
 import sqlite3
 from supabase import create_client
+import requests
+
+response = requests.get("http://localhost:5000/transcript")
+
+if response.status_code == 200:
+    transcript_data = response.json()
+    full_transcript = transcript_data["transcript"]
 
 load_dotenv()
 api_key = os.getenv("GEMINI-API-KEY")
@@ -13,7 +20,6 @@ if not api_key:
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# Set up SQLite connection
 conn = sqlite3.connect("mcq.db")
 cursor = conn.cursor()
 
@@ -51,7 +57,6 @@ def create_supabase_table():
     );
     """
     try:
-        # Using REST API to create table
         response = supabase.rpc('exec_sql', {'query': create_table_sql}).execute()
         print("MCQs table created or already exists in Supabase")
         return True
@@ -61,13 +66,13 @@ def create_supabase_table():
 
 try:
     response = supabase.table("mcqs").select("id").limit(1).execute()
-    print("✅ MCQs table exists in Supabase")
+    print("MCQs table exists in Supabase")
 except Exception as e:
-    print("⚠️ Table doesn't exist, attempting to create...")
+    print("Table doesn't exist, attempting to create...")
     if create_supabase_table():
-        print("✅ Table created successfully")
+        print("Table created successfully")
     else:
-        print("❌ Failed to create table")
+        print("Failed to create table")
 
 try:
     response = supabase.table("mcqs").select("*").execute()
@@ -150,7 +155,7 @@ def insert_mcq(mcq):
             print(f"Response body: {e.response.text}")
 
 if __name__ == "__main__":
-    input_text = input("Enter the text to summarize: ")
+    input_text = input(full_transcript) #to input the voice transcript
     summary = summarize_text(input_text)
     print("\nSummary:\n", summary)
 
