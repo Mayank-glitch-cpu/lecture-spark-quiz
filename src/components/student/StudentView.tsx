@@ -1,7 +1,6 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../../contexts/AppContext";
-import ZoomIntegration from "../ZoomIntegration";
 import QuizPopup from "./QuizPopup";
 import { Bell } from "lucide-react";
 
@@ -57,7 +56,14 @@ const StudentView = () => {
           )}
         </div>
         
-        <ZoomIntegration />
+        <div className="h-[500px] flex flex-col justify-center items-center bg-gray-50 border rounded-lg">
+          <div className="text-center">
+            <h3 className="text-lg font-medium">Zoom Integration Active</h3>
+            <p className="text-sm text-gray-500 max-w-xs mt-2">
+              Listening to the lecture and generating quizzes based on content.
+            </p>
+          </div>
+        </div>
         
         {isQuizActive && activeQuestion && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/30 z-50 p-4">

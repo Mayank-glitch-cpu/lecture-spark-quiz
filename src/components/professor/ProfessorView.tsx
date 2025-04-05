@@ -6,7 +6,6 @@ import MetricCard from "./MetricCard";
 import AttentionChart from "./AttentionChart";
 import ParticipationCard from "./ParticipationCard";
 import StudentList from "./StudentList";
-import ZoomIntegration from "../ZoomIntegration";
 import CurrentQuizCard from "./CurrentQuizCard";
 
 const ProfessorView = () => {
@@ -49,7 +48,14 @@ const ProfessorView = () => {
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="md:col-span-2">
-          <ZoomIntegration />
+          <div className="h-[500px] flex flex-col justify-center items-center bg-gray-50 border rounded-lg">
+            <div className="text-center">
+              <h3 className="text-lg font-medium">Zoom Integration Active</h3>
+              <p className="text-sm text-gray-500 max-w-xs mt-2">
+                Recording lecture and generating quiz questions based on content.
+              </p>
+            </div>
+          </div>
         </div>
         <CurrentQuizCard 
           activeQuestion={dashboard.activeQuestion} 
